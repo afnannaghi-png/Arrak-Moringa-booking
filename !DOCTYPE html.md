@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8"/>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+<title>Arrak \& Moringa Petit Four — Sensory Analysis Booking</title>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+
+&#x20; \*, \*::before, \*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+&#x20; body { font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; min-height: 100vh; }
+
+&#x20; input, select, button { font-family: inherit; }
+
+&#x20; button { cursor: pointer; }
+
+</style>
+
+</head>
+
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+
+
+
+const SUPABASE\_URL = "https://twnpokykfyvhglyhgndy.supabase.co";
+
+const SUPABASE\_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR3bnBva3lrZnl2aGdseWhnbmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NjAxNzUsImV4cCI6MjA5MTAzNjE3NX0.R38q9P-CuT\_hEI6hJdHk9iXyUc-LLBrwKwjNid\_0jWA";
+
+const ADMIN\_PASS = "arrak2026";
+
+const DAY\_LABELS = { "2026-04-13":"Mon 13 Apr","2026-04-14":"Tue 14 Apr","2026-04-15":"Wed 15 Apr" };
+
+const C = { primary:"#1e3a5f", primaryLight:"#eff6ff", success:"#16a34a", successLight:"#f0fdf4", border:"rgba(0,0,0,0.12)", muted:"#6b7280", danger:"#dc2626" };
+
+
+
+function makeSlot(day,h,m,cap){
+
+&#x20; const pad=n=>String(n).padStart(2,"0");
+
+&#x20; const start=`${pad(h)}:${pad(m)}`;
+
+&#x20; let eMin=m+35,eHour=h; if(eMin>=60){eMin-=60;eHour++;}
+
+&#x20; return {id:`${day}\_${start}`,day,start,end:`${pad(eHour)}:${pad(eMin)}`,capacity:cap};
+
+}
+
+
+
+const SLOT\_DEFS = \[
+
+&#x20; ...\[\[10,5],\[10,40],\[11,15],\[11,50],\[12,25]].map((\[h,m])=>makeSlot("2026-04-13",h,m,4)),
+
+&#x20; ...\[\[10,30],\[11,5],\[11,40],\[12,15]].map((\[h,m])=>makeSlot("2026-04-14",h,m,4)),
+
+&#x20; ...\[\[10,30],\[11,5],\[11,40]].map((\[h,m])=>makeSlot("2026-04-15",h,m,4)),
+
+&#x20; makeSlot("2026-04-15",12,15,2),
+
+];
+
+const TOTAL\_CAP = SLOT\_DEFS.reduce((a,s)=>a+s.capacity,0);
+
+
+
+async function sbFetch(path, opts={}) {
+
+&#x20; const res = await fetch(`${SUPABASE\_URL}/rest/v1/${path}`, {
+
+&#x20;   ...opts,
+
+&#x20;   headers: { "apikey": SUPABASE\_KEY, "Authorization": `Bearer ${SUPABASE\_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation", ...(opts.headers||{}) }
+
+&#x20; });
+
+&#x20; if (!res.ok) throw new Error(await res.text());
+
+&#x20; const txt = await res.text();
+
+&#x20; return txt ? JSON.parse(txt) : \[];
+
+}
+
+
+
+function Badge({children,color}){
+
+&#x20; const map={green:\["#f0fdf4","#16a34a"],blue:\["#eff6ff","#1e40af"],gray:\["#f3f4f6","#6b7280"]};
+
+&#x20; const \[bg,fg]=map\[color]||map.gray;
+
+&#x20; return React.createElement("span",{style:{background:bg,color:fg,fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:20}},children);
+
+}
+
+
+
+function App() {
+
+&#x20; const \[bookingCounts, setBookingCounts] = React.useState({});
+
+&#x20; const \[allBookings, setAllBookings] = React.useState(\[]);
+
+&#x20; const \[loading, setLoading] = React.useState(true);
+
+&#x20; const \[tab, setTab] = React.useState("book");
+
+&#x20; const \[selectedDay, setSelectedDay] = React.useState("2026-04-13");
+
+&#x20; const \[selectedSlot, setSelectedSlot] = React.useState(null);
+
+&#x20; const \[form, setForm] = React.useState({name:"",email:"",phone:""});
+
+&#x20; const \[errors, setErrors] = React.useState({});
+
+&#x20; const \[confirmation, setConfirmation] = React.useState(null);
+
+&#x20; const \[step, setStep] = React.useState("select");
+
+&#x20; const \[adminUnlocked, setAdminUnlocked] = React.useState(false);
+
+&#x20; const \[passInput, setPassInput] = React.useState("");
+
+&#x20; const \[passError, setPassError] = React.useState(false);
+
+&#x20; const \[filterDay, setFilterDay] = React.useState("all");
+
+&#x20; const \[search, setSearch] = React.useState("");
+
+&#x20; const \[submitting, setSubmitting] = React.useState(false);
+
+&#x20; const \[dbError, setDbError] = React.useState("");
+
+&#x20; const \[dbStatus, setDbStatus] = React.useState("connecting");
+
+
+
+&#x20; async function loadBookings() {
+
+&#x20;   try {
+
+&#x20;     setDbStatus("connecting");
+
+&#x20;     const data = await sbFetch("bookings?select=slot\_id,day");
+
+&#x20;     const counts = {};
+
+&#x20;     data.forEach(b => { counts\[b.slot\_id] = (counts\[b.slot\_id]||0)+1; });
+
+&#x20;     setBookingCounts(counts);
+
+&#x20;     setDbStatus("live");
+
+&#x20;     setDbError("");
+
+&#x20;   } catch(e) {
+
+&#x20;     setDbStatus("offline");
+
+&#x20;     setDbError(`Connection error: ${e.message}`);
+
+&#x20;   } finally { setLoading(false); }
+
+&#x20; }
+
+
+
+&#x20; async function loadAllBookings() {
+
+&#x20;   try {
+
+&#x20;     const data = await sbFetch("bookings?select=\*\&order=booked\_at.desc");
+
+&#x20;     if (Array.isArray(data)) setAllBookings(data);
+
+&#x20;   } catch(e) { console.error(e); }
+
+&#x20; }
+
+
+
+&#x20; React.useEffect(() => { loadBookings(); }, \[]);
+
+&#x20; React.useEffect(() => { if (adminUnlocked) loadAllBookings(); }, \[adminUnlocked]);
+
+
+
+&#x20; const slots = SLOT\_DEFS.map(s=>({...s, booked: bookingCounts\[s.id]||0}));
+
+&#x20; const totalBooked = Object.values(bookingCounts).reduce((a,v)=>a+v,0);
+
+&#x20; const daySlots = slots.filter(s=>s.day===selectedDay);
+
+&#x20; const daySummary = Object.keys(DAY\_LABELS).map(d=>{
+
+&#x20;   const ds=slots.filter(s=>s.day===d);
+
+&#x20;   return {day:d, cap:ds.reduce((a,s)=>a+s.capacity,0), booked:ds.reduce((a,s)=>a+s.booked,0)};
+
+&#x20; });
+
+
+
+&#x20; function validate(){
+
+&#x20;   const e={};
+
+&#x20;   if(!form.name.trim()) e.name="Name is required";
+
+&#x20;   if(!form.email.trim()||!/\\S+@\\S+\\.\\S+/.test(form.email)) e.email="Valid email required";
+
+&#x20;   if(!form.phone.trim()) e.phone="Phone is required";
+
+&#x20;   return e;
+
+&#x20; }
+
+
+
+&#x20; async function handleBook(){
+
+&#x20;   const e=validate(); if(Object.keys(e).length){setErrors(e);return;}
+
+&#x20;   setSubmitting(true);
+
+&#x20;   try {
+
+&#x20;     const confirmId = Math.random().toString(36).substr(2,8).toUpperCase();
+
+&#x20;     await sbFetch("bookings", { method:"POST", body: JSON.stringify({
+
+&#x20;       name:form.name, email:form.email, phone:form.phone,
+
+&#x20;       day:selectedSlot.day, start\_time:selectedSlot.start, end\_time:selectedSlot.end,
+
+&#x20;       slot\_id:selectedSlot.id, confirm\_id:confirmId
+
+&#x20;     })});
+
+&#x20;     await loadBookings();
+
+&#x20;     setConfirmation({...selectedSlot, name:form.name, confirmId});
+
+&#x20;     setStep("select"); setSelectedSlot(null);
+
+&#x20;   } catch(err) {
+
+&#x20;     setErrors({submit:"Booking failed. Please try again."});
+
+&#x20;   } finally { setSubmitting(false); }
+
+&#x20; }
+
+
+
+&#x20; const filteredBookings = allBookings.filter(b=>{
+
+&#x20;   const matchDay=filterDay==="all"||b.day===filterDay;
+
+&#x20;   const q=search.toLowerCase();
+
+&#x20;   return matchDay\&\&(!search||b.name?.toLowerCase().includes(q)||b.email?.toLowerCase().includes(q));
+
+&#x20; });
+
+
+
+&#x20; function exportCSV(){
+
+&#x20;   const rows=\[\["Name","Email","Phone","Day","Time","Confirmation","Booked At"],
+
+&#x20;     ...allBookings.map(b=>\[b.name,b.email,b.phone,DAY\_LABELS\[b.day]||b.day,`${b.start\_time}–${b.end\_time}`,b.confirm\_id,b.booked\_at])];
+
+&#x20;   const csv=rows.map(r=>r.map(c=>`"${c||""}"`).join(",")).join("\\n");
+
+&#x20;   const a=document.createElement("a"); a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv); a.download="arrak-moringa-bookings.csv"; a.click();
+
+&#x20; }
+
+
+
+&#x20; const statusColor = dbStatus==="live"?"#16a34a":dbStatus==="connecting"?"#f59e0b":"#dc2626";
+
+&#x20; const statusLabel = dbStatus==="live"?"Live":dbStatus==="connecting"?"Connecting…":"Offline";
+
+
+
+&#x20; const s = {
+
+&#x20;   card: {background:"#fff",border:`0.5px solid ${C.border}`,borderRadius:14,padding:"1.25rem"},
+
+&#x20;   metricCard: {background:"#f3f4f6",borderRadius:10,padding:"0.65rem 0.85rem"},
+
+&#x20;   tabBtn: (active) => ({flex:1,padding:"0.55rem 0.5rem",borderRadius:8,border:active?`1.5px solid ${C.primary}`:`0.5px solid ${C.border}`,background:active?C.primaryLight:"#fff",color:active?C.primary:"#374151",fontWeight:active?500:400,fontSize:13}),
+
+&#x20;   dayBtn: (active, empty) => ({flex:1,padding:"0.5rem 0.25rem",borderRadius:8,border:active?`1.5px solid ${C.primary}`:`0.5px solid ${C.border}`,background:active?C.primaryLight:"#fff",color:active?C.primary:empty?"#9ca3af":"#374151",fontWeight:active?500:400,fontSize:13}),
+
+&#x20;   primaryBtn: {width:"100%",padding:"0.7rem",borderRadius:8,background:C.primary,color:"#fff",border:"none",fontWeight:500,fontSize:15},
+
+&#x20; };
+
+
+
+&#x20; return (
+
+&#x20;   <div style={{maxWidth:640,margin:"0 auto",padding:"1.5rem 1rem"}}>
+
+
+
+&#x20;     {/\* Confirmation modal \*/}
+
+&#x20;     {confirmation \&\& (
+
+&#x20;       <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16}}>
+
+&#x20;         <div style={{background:"#fff",borderRadius:16,padding:"2rem",maxWidth:380,width:"100%",textAlign:"center"}}>
+
+&#x20;           <div style={{width:52,height:52,borderRadius:"50%",background:C.successLight,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 1rem",fontSize:24,color:C.success}}>✓</div>
+
+&#x20;           <h2 style={{marginBottom:"0.25rem",fontSize:19,fontWeight:500,color:"#111"}}>Booking confirmed!</h2>
+
+&#x20;           <p style={{marginBottom:"1.25rem",fontSize:13,color:C.muted}}>Your slot has been saved</p>
+
+&#x20;           <div style={{background:"#f9fafb",borderRadius:10,padding:"1rem",marginBottom:"1rem",border:`0.5px solid ${C.border}`,textAlign:"left"}}>
+
+&#x20;             <p style={{marginBottom:3,fontWeight:500,fontSize:14,color:"#111"}}>{confirmation.name}</p>
+
+&#x20;             <p style={{marginBottom:3,fontSize:12,color:C.muted}}>{DAY\_LABELS\[confirmation.day]} · {confirmation.start}–{confirmation.end} AST</p>
+
+&#x20;             <p style={{fontSize:11,color:"#9ca3af"}}>Ref #{confirmation.confirmId}</p>
+
+&#x20;           </div>
+
+&#x20;           <button onClick={()=>setConfirmation(null)} style={{...s.primaryBtn,fontSize:14}}>Done</button>
+
+&#x20;         </div>
+
+&#x20;       </div>
+
+&#x20;     )}
+
+
+
+&#x20;     {/\* Header \*/}
+
+&#x20;     <div style={{marginBottom:"1.25rem"}}>
+
+&#x20;       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+
+&#x20;         <div style={{width:38,height:38,borderRadius:9,background:C.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+
+&#x20;           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+
+&#x20;         </div>
+
+&#x20;         <div>
+
+&#x20;           <h1 style={{fontSize:16,fontWeight:500,color:"#111"}}>Arrak \& Moringa Petit Four</h1>
+
+&#x20;           <p style={{fontSize:12,color:C.muted}}>Sensory analysis · 13–15 Apr 2026 · 10:00–14:00 AST</p>
+
+&#x20;         </div>
+
+&#x20;         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+
+&#x20;           <span style={{width:7,height:7,borderRadius:"50%",background:statusColor,display:"inline-block"}}/>
+
+&#x20;           <span style={{fontSize:11,color:statusColor}}>{statusLabel}</span>
+
+&#x20;         </div>
+
+&#x20;       </div>
+
+
+
+&#x20;       {dbError \&\& <div style={{background:"#fef2f2",border:"0.5px solid #fecaca",borderRadius:8,padding:"0.65rem 0.85rem",marginBottom:10,fontSize:12,color:C.danger}}>{dbError}</div>}
+
+
+
+&#x20;       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+
+&#x20;         {\[\["Total booked",loading?"…":`${totalBooked} / ${TOTAL\_CAP}`,"#111"],\["Remaining",loading?"…":TOTAL\_CAP-totalBooked,C.success],\["Open slots",loading?"…":slots.filter(s=>s.booked<s.capacity).length,"#111"]].map((\[l,v,c])=>(
+
+&#x20;           <div key={l} style={s.metricCard}>
+
+&#x20;             <div style={{fontSize:11,color:C.muted}}>{l}</div>
+
+&#x20;             <div style={{fontSize:19,fontWeight:500,color:c}}>{v}</div>
+
+&#x20;           </div>
+
+&#x20;         ))}
+
+&#x20;       </div>
+
+
+
+&#x20;       <div style={{marginTop:10}}>
+
+&#x20;         <div style={{height:5,borderRadius:3,background:"#e5e7eb",overflow:"hidden"}}>
+
+&#x20;           <div style={{height:"100%",width:`${(totalBooked/TOTAL\_CAP)\*100}%`,background:C.primary,borderRadius:3,transition:"width 0.4s"}}/>
+
+&#x20;         </div>
+
+&#x20;         <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:11,color:C.muted}}>
+
+&#x20;           {daySummary.map(d=><span key={d.day}>{DAY\_LABELS\[d.day].split(" ").slice(1).join(" ")}: {d.booked}/{d.cap}</span>)}
+
+&#x20;         </div>
+
+&#x20;       </div>
+
+&#x20;     </div>
+
+
+
+&#x20;     {/\* Tabs \*/}
+
+&#x20;     <div style={{display:"flex",gap:6,marginBottom:"1.25rem"}}>
+
+&#x20;       {\[\["book","Book a slot"],\["admin","Admin panel"]].map((\[id,label])=>(
+
+&#x20;         <button key={id} onClick={()=>setTab(id)} style={s.tabBtn(tab===id)}>{label}</button>
+
+&#x20;       ))}
+
+&#x20;     </div>
+
+
+
+&#x20;     {/\* BOOK TAB \*/}
+
+&#x20;     {tab==="book" \&\& step==="select" \&\& (
+
+&#x20;       <>
+
+&#x20;         <div style={{display:"flex",gap:6,marginBottom:"1rem"}}>
+
+&#x20;           {Object.keys(DAY\_LABELS).map(d=>{
+
+&#x20;             const ds=slots.filter(s=>s.day===d);
+
+&#x20;             const left=ds.reduce((a,s)=>a+s.capacity-s.booked,0);
+
+&#x20;             return (
+
+&#x20;               <button key={d} onClick={()=>setSelectedDay(d)} style={s.dayBtn(selectedDay===d, left===0)}>
+
+&#x20;                 {DAY\_LABELS\[d]}
+
+&#x20;                 <div style={{fontSize:10,color:left===0?"#9ca3af":C.muted,marginTop:1,fontWeight:400}}>{left} left</div>
+
+&#x20;               </button>
+
+&#x20;             );
+
+&#x20;           })}
+
+&#x20;         </div>
+
+&#x20;         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+
+&#x20;           {daySlots.map(slot=>{
+
+&#x20;             const full=slot.booked>=slot.capacity;
+
+&#x20;             const pct=slot.booked/slot.capacity;
+
+&#x20;             return (
+
+&#x20;               <button key={slot.id} onClick={()=>{ if(!full\&\&!loading){ setSelectedSlot(slot); setStep("form"); setErrors({}); setForm({name:"",email:"",phone:""}); }}} disabled={full||loading}
+
+&#x20;                 style={{padding:"0.8rem 0.65rem",borderRadius:10,border:`0.5px solid ${C.border}`,background:full?"#f9fafb":"#fff",cursor:full||loading?"not-allowed":"pointer",textAlign:"left",opacity:loading?0.6:1}}>
+
+&#x20;                 <div style={{fontSize:15,fontWeight:500,color:full?"#9ca3af":"#111"}}>{slot.start}</div>
+
+&#x20;                 <div style={{fontSize:11,color:C.muted,marginBottom:7}}>– {slot.end}</div>
+
+&#x20;                 <div style={{height:3,borderRadius:2,background:"#e5e7eb",overflow:"hidden"}}>
+
+&#x20;                   <div style={{height:"100%",width:`${pct\*100}%`,background:full?"#d1d5db":pct>=0.75?C.danger:C.primary,borderRadius:2}}/>
+
+&#x20;                 </div>
+
+&#x20;                 <div style={{fontSize:11,marginTop:4,color:full?"#9ca3af":C.muted}}>{full?"Full":`${slot.capacity-slot.booked}/${slot.capacity} left`}</div>
+
+&#x20;               </button>
+
+&#x20;             );
+
+&#x20;           })}
+
+&#x20;         </div>
+
+&#x20;         <div style={{display:"flex",gap:14,marginTop:"0.85rem",fontSize:11,color:C.muted}}>
+
+&#x20;           {\[\["#1e3a5f","Available"],\["#dc2626","Almost full"],\["#d1d5db","Full"]].map((\[bg,l])=>(
+
+&#x20;             <span key={l} style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:2,background:bg,display:"inline-block"}}/>{l}</span>
+
+&#x20;           ))}
+
+&#x20;         </div>
+
+&#x20;       </>
+
+&#x20;     )}
+
+
+
+&#x20;     {tab==="book" \&\& step==="form" \&\& selectedSlot \&\& (
+
+&#x20;       <div style={s.card}>
+
+&#x20;         <button onClick={()=>setStep("select")} style={{background:"none",border:"none",color:C.primary,fontSize:13,padding:0,marginBottom:"1rem"}}>← Back</button>
+
+&#x20;         <div style={{background:C.primaryLight,borderRadius:8,padding:"0.75rem 1rem",marginBottom:"1.25rem",border:"0.5px solid #bfdbfe"}}>
+
+&#x20;           <div style={{fontSize:14,fontWeight:500,color:"#1e40af"}}>{DAY\_LABELS\[selectedSlot.day]} · {selectedSlot.start}–{selectedSlot.end} AST</div>
+
+&#x20;           <div style={{fontSize:12,color:"#3b82f6"}}>{selectedSlot.capacity-selectedSlot.booked} spot{selectedSlot.capacity-selectedSlot.booked!==1?"s":""} remaining · 35 min</div>
+
+&#x20;         </div>
+
+&#x20;         {\[\["name","Full name","text"],\["email","Email address","email"],\["phone","Phone number","tel"]].map((\[f,l,t])=>(
+
+&#x20;           <div key={f} style={{marginBottom:"1rem"}}>
+
+&#x20;             <label style={{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}}>{l}</label>
+
+&#x20;             <input type={t} value={form\[f]} onChange={e=>setForm(p=>({...p,\[f]:e.target.value}))}
+
+&#x20;               style={{width:"100%",padding:"0.55rem 0.75rem",borderRadius:8,border:`0.5px solid ${errors\[f]?C.danger:C.border}`,fontSize:14,color:"#111",outline:"none"}}/>
+
+&#x20;             {errors\[f]\&\&<p style={{marginTop:4,fontSize:12,color:C.danger}}>{errors\[f]}</p>}
+
+&#x20;           </div>
+
+&#x20;         ))}
+
+&#x20;         {errors.submit\&\&<p style={{fontSize:12,color:C.danger,marginBottom:8}}>{errors.submit}</p>}
+
+&#x20;         <button onClick={handleBook} disabled={submitting} style={{...s.primaryBtn,background:submitting?"#93c5fd":C.primary,cursor:submitting?"not-allowed":"pointer"}}>
+
+&#x20;           {submitting?"Saving…":"Confirm booking"}
+
+&#x20;         </button>
+
+&#x20;       </div>
+
+&#x20;     )}
+
+
+
+&#x20;     {/\* ADMIN TAB \*/}
+
+&#x20;     {tab==="admin" \&\& !adminUnlocked \&\& (
+
+&#x20;       <div style={{...s.card,textAlign:"center",padding:"2rem"}}>
+
+&#x20;         <div style={{width:44,height:44,borderRadius:"50%",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 0.75rem"}}>
+
+&#x20;           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+
+&#x20;         </div>
+
+&#x20;         <h3 style={{marginBottom:"0.5rem",fontWeight:500,color:"#111"}}>Admin access</h3>
+
+&#x20;         <p style={{fontSize:13,color:C.muted,marginBottom:"1.25rem"}}>Enter the admin password to view all bookings</p>
+
+&#x20;         <input type="password" value={passInput} onChange={e=>{setPassInput(e.target.value);setPassError(false);}} placeholder="Password"
+
+&#x20;           onKeyDown={e=>{if(e.key==="Enter"){if(passInput===ADMIN\_PASS){setAdminUnlocked(true);}else setPassError(true);}}}
+
+&#x20;           style={{width:"100%",padding:"0.55rem 0.75rem",borderRadius:8,border:`0.5px solid ${passError?C.danger:C.border}`,fontSize:14,outline:"none",marginBottom:8}}/>
+
+&#x20;         {passError\&\&<p style={{fontSize:12,color:C.danger,marginBottom:8}}>Incorrect password</p>}
+
+&#x20;         <button onClick={()=>{if(passInput===ADMIN\_PASS){setAdminUnlocked(true);loadAllBookings();}else setPassError(true);}} style={s.primaryBtn}>Unlock</button>
+
+&#x20;       </div>
+
+&#x20;     )}
+
+
+
+&#x20;     {tab==="admin" \&\& adminUnlocked \&\& (
+
+&#x20;       <div>
+
+&#x20;         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:"1rem",flexWrap:"wrap"}}>
+
+&#x20;           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or email…"
+
+&#x20;             style={{flex:1,minWidth:150,padding:"0.45rem 0.75rem",borderRadius:8,border:`0.5px solid ${C.border}`,fontSize:13,outline:"none"}}/>
+
+&#x20;           <select value={filterDay} onChange={e=>setFilterDay(e.target.value)}
+
+&#x20;             style={{padding:"0.45rem 0.65rem",borderRadius:8,border:`0.5px solid ${C.border}`,fontSize:13,background:"#fff",outline:"none"}}>
+
+&#x20;             <option value="all">All days</option>
+
+&#x20;             {Object.entries(DAY\_LABELS).map((\[v,l])=><option key={v} value={v}>{l}</option>)}
+
+&#x20;           </select>
+
+&#x20;           <button onClick={()=>{loadAllBookings();loadBookings();}} style={{padding:"0.45rem 0.75rem",borderRadius:8,border:`0.5px solid ${C.border}`,background:"#fff",fontSize:13}}>↻ Refresh</button>
+
+&#x20;           <button onClick={exportCSV} style={{padding:"0.45rem 0.75rem",borderRadius:8,border:`0.5px solid ${C.border}`,background:"#fff",fontSize:13}}>Export CSV</button>
+
+&#x20;         </div>
+
+&#x20;         <div style={{fontSize:12,color:C.muted,marginBottom:"0.75rem"}}>{filteredBookings.length} booking{filteredBookings.length!==1?"s":""}</div>
+
+&#x20;         <div style={{display:"flex",flexDirection:"column",gap:8}}>
+
+&#x20;           {filteredBookings.length===0\&\&<div style={{textAlign:"center",padding:"2rem",color:C.muted,fontSize:13}}>No bookings yet</div>}
+
+&#x20;           {filteredBookings.map(b=>(
+
+&#x20;             <div key={b.id} style={{background:"#fff",border:`0.5px solid ${C.border}`,borderRadius:12,padding:"0.85rem 1rem"}}>
+
+&#x20;               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+
+&#x20;                 <div>
+
+&#x20;                   <div style={{fontWeight:500,fontSize:14,color:"#111",marginBottom:2}}>{b.name}</div>
+
+&#x20;                   <div style={{fontSize:12,color:C.muted}}>{b.email} · {b.phone}</div>
+
+&#x20;                 </div>
+
+&#x20;                 <Badge color="blue">#{b.confirm\_id}</Badge>
+
+&#x20;               </div>
+
+&#x20;               <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+
+&#x20;                 <Badge color="green">{DAY\_LABELS\[b.day]||b.day}</Badge>
+
+&#x20;                 <Badge color="gray">{b.start\_time}–{b.end\_time}</Badge>
+
+&#x20;               </div>
+
+&#x20;               <div style={{fontSize:11,color:"#9ca3af",marginTop:6}}>{new Date(b.booked\_at).toLocaleString()}</div>
+
+&#x20;             </div>
+
+&#x20;           ))}
+
+&#x20;         </div>
+
+&#x20;       </div>
+
+&#x20;     )}
+
+&#x20;   </div>
+
+&#x20; );
+
+}
+
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+
+</script>
+
+</body>
+
+</html>
+
